@@ -98,7 +98,7 @@ bool sim7080g_start(sim7080g_inst_t sim) {
   gpio_set_dir(sim.pin_pwr, 0);
 
 
-  sleep_ms(15000);
+  sleep_ms(5000);
 
   uint8_t _buf[128] = {0};
   for(int i = 0; i < SIM_START_ATTEMPTS; i++) {
