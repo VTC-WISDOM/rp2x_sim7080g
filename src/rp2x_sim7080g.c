@@ -1,639 +1,128 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
-#include <assert.h>
 #include <ctype.h>
-
-#include "pico/time.h"
 #include "hardware/gpio.h"
 
 #include "rp2x_sim7080g.h"
 
-#define MODEM_RETRY_DELAY_MS 100
-#define MODEM_START_RETRIES 100
-#define UART_BAUD 115200
-#define RX_BUFFER_SIZE 1024
+bool sim7080g_uart_write(sim7080g_inst_t sim, const uint8_t *buf, size_t len) {
 
+  bool status = 0;
+  
+  for(int written = 0; written < len; written++) {
+    if(!uart_is_writable(sim.uart)) break;
+    uart_write_blocking(sim.uart, buf++, 1);
+    if(written == len - 1) {
+      uart_write_blocking(sim.uart, "\r", 1);
+      status = 1;
+      }
+  }
 
-bool sim7080g_config(sim7080g_context_t *context);
-
-sim7080g_context_t * sim7080g_create(void) {
-	return malloc(sizeof (sim7080g_context_t));
-}
-void sim7080g_destroy(sim7080g_context_t *context) {
-	free(context);
-}
-
-void sim7080g_init(
-		sim7080g_context_t *context,
-		const char *apn,
-		uart_inst_t *uart,	
-		uint pin_tx,
-		uint pin_rx,
-		uint pin_power
-) {
-	if (!uart_is_enabled(uart)) 
-		uart_init(uart, UART_BAUD); 
-
-	context->apn = apn;
-	context->uart = uart;
-	context->pin_tx = pin_tx;
-	context->pin_rx = pin_rx;
-	context->pin_power = pin_power;
-
-	// Disable hardware flow completely
-	uart_set_hw_flow(uart, false, false);
-
-	// gpio stuff
-	gpio_init(context->pin_power);
-	gpio_set_dir(context->pin_power, GPIO_OUT);
-	gpio_pull_up(context->pin_power);
-	gpio_put(context->pin_power, 1);
-
-	gpio_set_function(context->pin_tx, GPIO_FUNC_UART);
-	gpio_set_function(context->pin_rx, GPIO_FUNC_UART);
+return status;
 }
 
-bool sim7080g_start(sim7080g_context_t *context) {
-	bool success = false;
-	uint8_t read_buffer[RX_BUFFER_SIZE] = {0};
-	for (int tries = 0; tries < MODEM_START_RETRIES; tries++) {
+bool sim7080g_send_at_command(sim7080g_inst_t sim, const uint8_t *command) {
 
-		if (sim7080g_is_ready(context)) {
-			success = true;
-			break;
-		}
+  bool status = 0;
+  
+  uint8_t atcommand[AT_MAX_BUFFER_SIZE] = "AT";
+  strcat(atcommand, command);
 
-		sleep_ms(MODEM_RETRY_DELAY_MS);
-		continue;
-	}
+/*
+  for(int i = 0; i < strlen(atcommand); i++) {
+    if(isprint(atcommand[i])) printf("%c", atcommand[i]);
+    else if(atcommand[i] == '\r') printf("\\r");
+    else if(atcommand[i] == '\n') printf("\\n");
+    else printf("\'0x%x\'", atcommand[i]);
+  }
+  printf("... ");
+*/
 
-	// This is how we fail
-	if (!success) return false;
-	if (!sim7080g_config(context)) return false;
+  int written = 0;
+  for(written = 0; written < strlen(atcommand); written++) {
+    if(!uart_is_writable(sim.uart)) break;
+    uart_putc_raw(sim.uart, atcommand[written]);
+    }
+    if(written == strlen(atcommand)) status = 1;
+    uart_putc_raw(sim.uart, '\r');
 
-	// Wait until network is connected
-	// sim7080g_wait_for_cn(context);
-
-	return success;
-}
-
-bool sim7080g_config(sim7080g_context_t *context) {
-
-	if (!sim7080g_sim_ready(context)) return false;
-
-	// CONFIGURING THE FOLLOWING:
-	// +CMEE=2  Verbose errors
-	// +CMGF=1  SMS message format: text
-	// +CMGD=4  Clear any existing SMS messages in buffer
-	// +CNMP=38 Preferred mode: LTE only
-	// +CMNB=1  Preferred network: CAT-M
-	// +CGDCONT Set APN
-	// +CNCFG   Restr_puest proper code from carrier network
-	uint8_t *command = 
-		"+CMEE=2;+CMGF=1;+CMGD=,4;+CNMP=38;+CMNB=1;+CGDCONT=1,\"IP\",\"";
-	CommandBuffer *cb = cb_reset(&(CommandBuffer) {0});
-	cb_at_prefix_set(cb);
-	cb_write(cb, command, strlen(command));
-	cb_write(cb, (uint8_t *)context->apn, strlen(context->apn));
-	cb_write(cb, "\"", 1);
-
-	sim7080g_cb_write_blocking(context, cb);
-
-	uint8_t read_buffer[RX_BUFFER_SIZE];
-	uint32_t received = sim7080g_read_blocking(context, read_buffer, RX_BUFFER_SIZE);
-
-	ResponseParser *rp = rp_reset(&(ResponseParser) {0});
-	rp_parse(rp, read_buffer, received);
-
-	return rp_contains_ok(rp);
-}
-
-void sim7080g_write_blocking(
-		sim7080g_context_t *context,
-		const uint8_t src[],
-		size_t src_len
-)
-{
-	uart_write_blocking(context->uart, src, src_len);
-}
-
-bool sim7080g_write_within_us(
-		sim7080g_context_t *context, 
-		const uint8_t *src, 
-		size_t src_len, 
-		uint64_t timeout
-) 
-{
-	if (src_len > COMMAND_BUFFER_MAX) return false;
-	
-	absolute_time_t timeout_time = make_timeout_time_us(timeout);
-
-	bool writable = false;
-	while (get_absolute_time() < timeout_time) {
-		if ((writable = uart_is_writable(context->uart)))
-			break;
-
-		sleep_us(WRITE_TIMEOUT_RESOLUTION_US);
-	}
-	if (!writable) return false;
-
-	uart_write_blocking(context->uart, src, src_len);
-	return true;
+  return status;
 }
 
 
-void sim7080g_cb_write_blocking(sim7080g_context_t *context, CommandBuffer cb[static 1]) {
-	sim7080g_write_blocking(context, cb_get_buffer(cb), cb_length(cb));
+bool sim7080g_get_response(sim7080g_inst_t sim, uint8_t *dst, size_t len) {
+
+  uint index = 0;
+  bool status = 0;
+
+  if(!uart_is_readable_within_us(sim.uart, 10000)) return status;
+
+  while(uart_is_readable_within_us(sim.uart, 10000)) {
+    if(index >= len) break;
+    uart_read_blocking(sim.uart, dst+(index++), 1);
+  }
+  
+  if(dst[0] != '\r') return status;
+  if(index <= len && index > 4) status = 1;
+
+  return status;
 }
 
 
-bool sim7080g_cb_write_within_us(
-		sim7080g_context_t *context, 
-		CommandBuffer *cb, 
-		uint64_t timeout
-) 
-{
-	return sim7080g_write_within_us(
-			context,	
-			cb_get_buffer(cb),
-			cb_length(cb),
-			timeout
-	);
+
+
+bool sim7080g_start(sim7080g_inst_t sim) {
+
+  bool status = 0;
+
+  //init gpios and uart
+  if(!uart_is_enabled(sim.uart)) uart_init(sim.uart, SIM_UART_BAUD);
+  uart_set_hw_flow(sim.uart, 0, 0);
+  uart_set_format(sim.uart, 8, 1, UART_PARITY_NONE);
+  
+  gpio_init(sim.pin_pwr);
+  gpio_set_dir(sim.pin_pwr, true);
+  gpio_pull_up(sim.pin_pwr);
+
+  gpio_init(sim.uart_pin_tx);
+  gpio_init(sim.uart_pin_rx);
+  gpio_set_function(sim.uart_pin_tx, GPIO_FUNC_UART);
+  gpio_set_function(sim.uart_pin_rx, GPIO_FUNC_UART);
+
+  //send startup signal
+  gpio_put(sim.pin_pwr, 0);
+  sleep_ms(15000);
+  gpio_put(sim.pin_pwr, 1);
+
+  sleep_ms(15000);
+
+  uint8_t _buf[128] = {0};
+  for(int i = 0; i < SIM_START_ATTEMPTS; i++) {
+    printf("sim7080g start: %i\n", i);
+    sim7080g_send_at_command(sim, "E0");
+    if(sim7080g_get_response(sim, _buf, sizeof(_buf))) {
+      printf("\n%s\n", _buf);
+      status = 1;
+      break;
+      }
+    sleep_ms(1000);
+  }
+
+  return status;
 }
 
-uint32_t sim7080g_read_within_us(
-		sim7080g_context_t *context, 
-		uint8_t *dst, 
-		size_t dst_len, 
-		uint64_t timeout
-) 
-{
-	if (!uart_is_readable_within_us(context->uart, timeout)) return 0;
-
-	return sim7080g_read_blocking(context, dst, dst_len);
+bool sim7080g_config(sim7080g_inst_t sim, sim7080g_config_t config) {
+    
+    
 }
 
-uint32_t sim7080g_read_blocking(sim7080g_context_t *context, uint8_t *dst, size_t dst_len) {
-	if (dst == NULL) {
-		dst = (uint8_t[RX_BUFFER_SIZE]) {0};
-		dst_len = RX_BUFFER_SIZE;
-	}
+bool sim7080g_is_active(sim7080g_inst_t sim) {
 
-	uint8_t received = 0;
-	for (uint8_t *p = dst; p - dst < dst_len; p++, received++) {
-		uart_read_blocking(context->uart, p, 1);
-
-		if (!uart_is_readable_within_us(context->uart, READ_STOP_TIMEOUT_US)) 
-			break;
-	}
-
-	return received;
+  
+  
 }
 
-bool sim7080g_read_blocking_ok(sim7080g_context_t *context) {
-
-	uint8_t read_buffer[RX_BUFFER_SIZE] = {0};
-	uint32_t received = sim7080g_read_blocking(context, read_buffer, RX_BUFFER_SIZE);
-
-	ResponseParser *rp = rp_reset(&(ResponseParser) {0});
-	rp_parse(rp, read_buffer, received);
-
-	return rp_contains_ok(rp);
-}
-
-bool sim7080g_read_ok_within_us(sim7080g_context_t *context, uint64_t timeout) {
-	if (!uart_is_readable_within_us(context->uart, timeout)) return false;
-
-	return sim7080g_read_blocking_ok(context);
-}
-
-bool sim7080g_is_ready(sim7080g_context_t *context) {
-	
-	CommandBuffer *cb = cb_reset(&(CommandBuffer) {0});
-	cb_at_prefix_set(cb);
-	cb_write(cb, "E0", 2);
-
-	sim7080g_cb_write_blocking(context, cb);
-
-    return sim7080g_read_ok_within_us(context, 100 * 1000);
-}
-
-
-bool sim7080g_sim_ready(sim7080g_context_t *context) {
-	CommandBuffer *cb = cb_reset(&(CommandBuffer) {0});
-	ResponseParser *rp = rp_reset(&(ResponseParser) {0});
-
-	cb_at_prefix_set(cb);
-	cb_write(cb, "+CPIN?", 6);
-
-	sim7080g_cb_write_blocking(context, cb);
-
-	uint8_t read_buffer[RX_BUFFER_SIZE];
-	uint32_t received = sim7080g_read_blocking(context, read_buffer, RX_BUFFER_SIZE);
-
-	rp_parse(rp, read_buffer, received);
-	return rp_contains(rp, "+CPIN: READY", 12, NULL);
-}
-
-
-bool sim7080g_cn_available(sim7080g_context_t *context) {
-
-	CommandBuffer *cb = cb_reset(&(CommandBuffer) {0});
-
-	cb_at_prefix_set(cb);
-	cb_write(cb, "+COPS?", 6);
-
-	sim7080g_cb_write_blocking(context, cb);
-
-	uint8_t read_buffer[RX_BUFFER_SIZE];
-	uint32_t received = sim7080g_read_blocking(context, read_buffer, RX_BUFFER_SIZE);
-
-	ResponseParser *rp = rp_reset(&(ResponseParser) {0});
-	rp_parse(rp, read_buffer, received);
-
-	return rp_contains(rp, "+COPS: 0,", 9, NULL);
-}
-
-bool sim7080g_cn_is_active(sim7080g_context_t *context) {
-	CommandBuffer *cb = cb_reset(&(CommandBuffer) {0});
-	cb_at_prefix_set(cb);
-	cb_write(cb, "+CNACT?", 7); 
-
-	sim7080g_cb_write_blocking(context, cb);
-
-	uint8_t read_buffer[RX_BUFFER_SIZE];
-	uint32_t received = sim7080g_read_blocking(context, read_buffer, RX_BUFFER_SIZE);
-
-	ResponseParser *rp = rp_reset(&(ResponseParser) {0});
-	rp_parse(rp, read_buffer, received);
-
-	return rp_contains(rp, "+CNACT: 0,1", 11, NULL);
-}
-
-bool sim7080g_cn_activate(sim7080g_context_t *context, bool activate) {
-	if (!sim7080g_cn_available(context)) return false;
-
-	// Avoid doing anything if we are already in the right state
-	if (activate && sim7080g_cn_is_active(context)) return true;
-	if (!activate && !sim7080g_cn_is_active(context)) return true;
-
-	CommandBuffer *cb = cb_reset(&(CommandBuffer) {0});
-	cb_at_prefix_set(cb);
-	cb_write(cb, "+CNACT=0,", 9); 
-	cb_write(cb, activate ? "1" : "0", 1);
-
-	sim7080g_cb_write_blocking(context, cb);
-
-	ResponseParser *rp = rp_reset(&(ResponseParser) {0});
-	uint32_t received = 0;
-	uint8_t read_buffer[RX_BUFFER_SIZE];
-	for (;;) {
-
-		received = sim7080g_read_blocking(context, read_buffer, RX_BUFFER_SIZE);
-		rp_parse(rp, read_buffer, received);
-		if (rp_contains_ok_or_err(rp)) break;
-
-		sleep_ms(1000);
-	}
-
-	if (activate)
-		return rp_contains(rp, "+APP PDP: 0,ACTIVE", 18, NULL);
-
-	return rp_contains(rp, "+APP PDP: 0,DEACTIVE", 20, NULL);
-}
-
-bool sim7080g_ssl_enable(sim7080g_context_t *context, bool enable) {
-	if (!sim7080g_cn_is_active(context)) return false;
-
-	CommandBuffer *cb = cb_reset(&(CommandBuffer) {0});
-	cb_at_prefix_set(cb);
-	cb_write(cb, "+CASSLCFG=0,\"SSL\",", 18); 
-	cb_write(cb, enable ? "1" : "0", 1);
-
-	sim7080g_cb_write_blocking(context, cb);
-
-	return sim7080g_read_blocking_ok(context);
-}
-
-void sim7080g_wait_for_cn(sim7080g_context_t *context) {
-	while(!sim7080g_cn_available(context)) sleep_ms(1000);
-}
-
-bool sim7080g_tcp_open(
-		sim7080g_context_t *context, 
-		uint8_t url_len,  
-		uint8_t url[static url_len],
-		uint16_t port
-)
-{
-	if (!sim7080g_cn_is_active(context)) return false;
-
-	CommandBuffer *cb = cb_reset(&(CommandBuffer) {0});
-	cb_at_prefix_set(cb);
-	cb_write(cb, "+CAOPEN=0,0,\"TCP\",\"", 19); 
-	cb_write(cb, url, url_len);
-	cb_write(cb, "\",", 2);
-
-	uint8_t port_str[6];
-	size_t str_len = sprintf(port_str, "%u", port);
-	cb_write(cb, port_str, str_len);
-
-	sim7080g_cb_write_blocking(context, cb);
-
-	ResponseParser *rp = rp_reset(&(ResponseParser) {0});
-	uint8_t read_buffer[RX_BUFFER_SIZE];
-	uint32_t received = 0;
-	for (;;) {
-
-		received = sim7080g_read_blocking(context, read_buffer, RX_BUFFER_SIZE);
-		rp_parse(rp, read_buffer, received);
-
-		if (rp_contains_ok_or_err(rp)) break;
-
-		sleep_ms(1000);
-	}
-
-	return rp_contains(rp, "+CAOPEN: 0,0", 12, NULL);
-}
-
-bool sim7080g_tcp_close(sim7080g_context_t *context) {
-	if (!sim7080g_cn_is_active(context)) return false;
-
-	CommandBuffer *cb = cb_reset(&(CommandBuffer) {0});
-	cb_at_prefix_set(cb);
-	cb_write(cb, "+CACLOSE=0", 10); 
-	
-	sim7080g_cb_write_blocking(context, cb);
-
-	return sim7080g_read_blocking_ok(context);
-}
-
-bool sim7080g_tcp_send(
-		sim7080g_context_t *context,
-		size_t data_len,
-		uint8_t data[static data_len]
-)
-{
-	//if (!sim7080g_cn_is_active(context)) return false;
-
-	CommandBuffer *cb = cb_reset(&(CommandBuffer) {0});
-	ResponseParser *rp = rp_reset(&(ResponseParser) {0});
-
-	size_t send_len;
-	uint8_t command[100];
-	uint8_t command_len;
-	uint8_t *p = data;
-	uint8_t read_buffer[RX_BUFFER_SIZE];
-	uint32_t received;
-
-	while(data_len) {
-		if (data_len > MODEM_TCP_SEND_MAX)
-			send_len = MODEM_TCP_SEND_MAX;
-		else
-			send_len = data_len;
-
-		data_len -= send_len;
-
-		command_len = sprintf(command, "+CASEND=0,%u", send_len);
-
-		cb_reset(cb);
-		cb_at_prefix_set(cb);
-		cb_write(cb, command, command_len);
-
-		sim7080g_cb_write_blocking(context, cb);
-
-		received = sim7080g_read_blocking(context, read_buffer, RX_BUFFER_SIZE);
-
-		rp_reset(rp);
-		rp_parse(rp, read_buffer, received);
-		
-		if (!rp_contains(rp, ">", 1, NULL)) return false;
-
-		sim7080g_write_blocking(context, p, send_len);
-
-		p += send_len;
-
-		received = sim7080g_read_blocking(context, read_buffer, RX_BUFFER_SIZE);
-
-		rp_reset(rp);
-		rp_parse(rp, read_buffer, received);
-
-		if (!rp_contains_ok(rp)) return false;
-	}
-
-	return true;
-}
-
-bool sim7080g_tcp_ack(sim7080g_context_t *context, uint *sent, uint *unack) {
-	uint8_t buffer[100];
-	uint8_t buffer_len;
-	uint8_t read_buffer[RX_BUFFER_SIZE];
-	uint32_t received;
-
-	CommandBuffer *cb = cb_reset(&(CommandBuffer) {0});
-	ResponseParser *rp = rp_reset(&(ResponseParser) {0});
-
-	buffer_len = sprintf(buffer, "+CAACK=0");
-
-	cb_reset(cb);
-	cb_at_prefix_set(cb);
-	cb_write(cb, buffer, buffer_len);
-	sim7080g_cb_write_blocking(context, cb);
-
-	received = sim7080g_read_blocking(context, read_buffer, RX_BUFFER_SIZE);
-
-	rp_reset(rp);
-	rp_parse(rp, read_buffer, received);
-
-	uint8_t index;
-	if (!rp_contains(rp, "+CAACK:", 7, &index)) return false;
-
-	uint8_t *return_message;
-	uint32_t message_len;
-	rp_get(rp, index, &return_message, &message_len);
-	return_message[message_len] = '\0';
-
-	// Find and return values
-	char *cp = return_message;
-	while (!isdigit(*cp)) cp++;
-	int digits = 0;
-
-	char num_str[10];
-	while (isdigit(*cp)) {
-		num_str[digits] = *cp++;
-		digits++;
-	}
-	num_str[digits] = '\0';
-	*sent = atoi(num_str);
-	cp++;
-	digits = 0; 
-	while (isdigit(*cp)) {
-		num_str[digits] = *cp++;
-		digits++;
-	}
-	num_str[digits] = '\0';
-
-	*unack = atoi(num_str);
-}
-
-size_t sim7080g_tcp_recv(
-		sim7080g_context_t *context,
-		size_t dst_len,
-		uint8_t dst[dst_len]
-)
-{
-	if (!sim7080g_cn_is_active(context)) return 0;
-
-	CommandBuffer *cb = cb_reset(&(CommandBuffer) {0});
-	ResponseParser *rp = rp_reset(&(ResponseParser) {0});
-
-	size_t recv_len;
-	uint8_t command[100] = {0};
-	size_t command_len = 0;
-	uint8_t *dst_p = dst;
-	uint8_t read_buffer[RX_BUFFER_SIZE];
-	uint32_t received;
-	size_t total_received = 0;
-	uint8_t len_str[6];
-	uint8_t *str_p = NULL;
-	uint16_t data_len = 0;
-	uint8_t *r = NULL;
-	while (dst_len - total_received) {
-		if (dst_len - total_received > MODEM_TCP_SEND_MAX)
-			recv_len = MODEM_TCP_SEND_MAX;
-		else
-			recv_len = dst_len - total_received;
-
-		command_len = sprintf(command, "+CARECV=0,%u", recv_len);
-
-		cb_reset(cb);
-		cb_at_prefix_set(cb);
-		cb_write(cb, command, command_len);
-
-		sim7080g_cb_write_blocking(context, cb);
-		
-		received = sim7080g_read_blocking(context, read_buffer, RX_BUFFER_SIZE);
-
-		rp_reset(rp);
-		rp_parse(rp, read_buffer, received);
-
-		uint8_t index;
-		if (!rp_contains(rp, "+CARECV: ", 9, &index)) return 0; 
-	
-		uint8_t *response; 
-		uint32_t response_len;
-		if (!rp_get(rp, index, &response, &response_len)) return 0;
-
-		// No data
-		if (response[9] == '0') break;
-		
-		str_p = len_str;	
-		for (r = &response[9]; *r != ','; r++) {
-			*str_p++ = *r;	
-		}
-		*str_p = '\0';
-		// set r to first byte of data
-		r++;
-		data_len = atoi(len_str);
-
-		for (int i = 0; i < data_len; i++) {
-			if (total_received == dst_len) break;
-			*dst_p++ = *r++;
-			total_received++;
-		}
-	}
-
-	return total_received;
-}
-
-size_t sim7080g_tcp_recv_within_us(
-		sim7080g_context_t *context,
-		size_t dst_len,
-		uint8_t dst[dst_len],
-		uint64_t timeout
-)
-{
-	absolute_time_t timeout_time = make_timeout_time_us(timeout);
-
-	uint32_t received = 0;
-	while (get_absolute_time() < timeout_time) {
-		received = sim7080g_tcp_recv(context, dst_len, dst);
-		if (received) break;
-
-		sleep_ms(50);
-	}
-		
-	return received;
-}
-
-bool sim7080g_tcp_recv_ready_within_us(sim7080g_context_t *context, uint64_t timeout) {
-
-	ResponseParser *rp = &(ResponseParser) {0};
-
-	uint8_t read_buffer[RX_BUFFER_SIZE];
-	uint32_t received = 0;
-	bool success = false;
-	absolute_time_t timeout_time = make_timeout_time_us(timeout);
-	while (get_absolute_time() < timeout_time) {
-
-		received = sim7080g_read_within_us(context, read_buffer, RX_BUFFER_SIZE, timeout);
-		rp_reset(rp);
-		rp_parse(rp, read_buffer, received);
-
-		if (rp_contains(rp, "+CADATAIND: 0", 13, NULL)) {
-			success = true;
-			break;
-		}
-	}
-
-	return success;
-}
-
-bool sim7080g_tcp_is_open(sim7080g_context_t *context) {
-	CommandBuffer *cb = cb_reset(&(CommandBuffer) {0});
-	cb_at_prefix_set(cb);
-	cb_write(cb, "+CASTATE?", 9);
-
-	sim7080g_cb_write_blocking(context, cb);
-
-	ResponseParser *rp = rp_reset(&(ResponseParser) {0});
-	uint8_t read_buffer[RX_BUFFER_SIZE];
-	uint32_t received = 0;
-	for (;;) {
-
-		received = sim7080g_read_blocking(context, read_buffer, RX_BUFFER_SIZE);
-		rp_parse(rp, read_buffer, received);
-
-		if (rp_contains_ok_or_err(rp)) break;
-		sleep_ms(50);
-	}
-
-	return rp_contains(rp, "+CASTATE: 0,1", 13, NULL);
-}
-
-void sim7080g_read_to_null(sim7080g_context_t *context) {
-	sim7080g_read_within_us(context, NULL, 0, 1000);
-}
-
-bool sim7080g_toggle_power(sim7080g_context_t *context) {
-	gpio_put(context->pin_power, 0);
-	sleep_ms(2500);
-	gpio_put(context->pin_power, 1);
-}
-
-bool sim7080g_power_down(sim7080g_context_t *context) {
-	CommandBuffer *cb = cb_reset(&(CommandBuffer) {0});
-	cb_at_prefix_set(cb);
-	cb_write(cb, "+CPOWD=1", 8);
-
-	sim7080g_cb_write_blocking(context, cb);
-
-	ResponseParser *rp = rp_reset(&(ResponseParser) {0});
-	uint8_t read_buffer[RX_BUFFER_SIZE];
-	uint32_t received = sim7080g_read_blocking(context, read_buffer, RX_BUFFER_SIZE);
-	rp_parse(rp, read_buffer, received);
-
-	bool success = rp_contains(rp, "NORMAL POWER DOWN", 17, NULL);
-	return success;
+bool sim7080g_power_off(sim7080g_inst_t sim) {
+  
 }
