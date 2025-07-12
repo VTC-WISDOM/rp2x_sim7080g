@@ -82,8 +82,8 @@ bool sim7080g_start(sim7080g_inst_t sim) {
   uart_set_format(sim.uart, 8, 1, UART_PARITY_NONE);
   
   gpio_init(sim.pin_pwr);
-  gpio_set_dir(sim.pin_pwr, true);
-  gpio_pull_up(sim.pin_pwr);
+  gpio_set_dir(sim.pin_pwr, 1);
+  //gpio_pull_up(sim.pin_pwr);
 
   gpio_init(sim.uart_pin_tx);
   gpio_init(sim.uart_pin_rx);
