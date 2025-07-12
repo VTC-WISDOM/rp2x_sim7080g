@@ -90,29 +90,15 @@ bool sim7080g_start(sim7080g_inst_t sim) {
   gpio_set_function(sim.uart_pin_tx, GPIO_FUNC_UART);
   gpio_set_function(sim.uart_pin_rx, GPIO_FUNC_UART);
 
-  sleep_ms(10000);
-  uint8_t _buf[128] = {0};
-  for(int i = 0; i < 3; i++) {
-    printf("sim7080g check: %i\n", i);
-    sim7080g_send_at_command(sim, "E0");
-    if(sim7080g_get_response(sim, _buf, sizeof(_buf))) {
-      printf("\n%s\n", _buf);
-      status = 1;
-      return status;
-      break;
-      }
-    sleep_ms(1000);
-  }
-
-  printf("sim7080g off- starting... \n");
   //send startup signal
   gpio_put(sim.pin_pwr, 0);
-  sleep_ms(1100);
+  sleep_ms(15000);
   gpio_put(sim.pin_pwr, 1);
 
-  sleep_ms(2700);
+  sleep_ms(15000);
 
-    for(int i = 0; i < SIM_START_ATTEMPTS; i++) {
+  uint8_t _buf[128] = {0};
+  for(int i = 0; i < SIM_START_ATTEMPTS; i++) {
     printf("sim7080g start: %i\n", i);
     sim7080g_send_at_command(sim, "E0");
     if(sim7080g_get_response(sim, _buf, sizeof(_buf))) {
