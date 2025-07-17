@@ -69,13 +69,8 @@ bool sim7080g_get_response(sim7080g_inst_t sim, uint8_t *dst, size_t len) {
   return status;
 }
 
-
-
-
-bool sim7080g_start(sim7080g_inst_t sim) {
-
-  bool status = 0;
-
+void sim7080g_init(sim7080g_inst_t sim) {
+  
   //init gpios and uart
   if(!uart_is_enabled(sim.uart)) uart_init(sim.uart, SIM_UART_BAUD);
   uart_set_hw_flow(sim.uart, 0, 0);
@@ -90,6 +85,12 @@ bool sim7080g_start(sim7080g_inst_t sim) {
   gpio_init(sim.uart_pin_rx);
   gpio_set_function(sim.uart_pin_tx, GPIO_FUNC_UART);
   gpio_set_function(sim.uart_pin_rx, GPIO_FUNC_UART);
+
+}
+
+bool sim7080g_start(sim7080g_inst_t sim) {
+
+  bool status = 0;
 
   //send startup signal
   gpio_set_dir(sim.pin_pwr, 1);
@@ -120,12 +121,50 @@ bool sim7080g_config(sim7080g_inst_t sim, sim7080g_config_t config) {
     
 }
 
-bool sim7080g_is_active(sim7080g_inst_t sim) {
-
-  
-  
-}
 
 bool sim7080g_power_off(sim7080g_inst_t sim) {
+  bool status = 0;
   
+  if(!sim7080g_send_at_command(sim, "+CPOWD=1")) return status;
+
+  uint8_t _buf[64] = {0};
+  int count = 0;
+  while(!sim7080g_get_response(sim, _buf, sizeof(_buf))) {
+    if(count++ > SIM_START_ATTEMPTS) return status;
+    sleep_ms(1);
+  }
+  printf("\n%i ms : %s\n", count, _buf);
+  uint8_t expected_string[] = "NORMAL POWER DOWN";
+  if(strncmp(_buf, expected_string, strlen(expected_string))) status = 1;
+  
+  return status;
+}
+
+
+bool sim7080g_power_on(sim7080g_inst_t sim) {
+  
+  bool status = 0;
+
+  //send startup signal
+  gpio_set_dir(sim.pin_pwr, 1);
+  gpio_put(sim.pin_pwr, 0);
+  sleep_ms(1100);
+  gpio_set_dir(sim.pin_pwr, 0);
+
+  sleep_ms(2500);
+  
+  uint8_t _buf[128] = {0};
+  for(int i = 0; i < SIM_START_ATTEMPTS; i++) {
+    printf("sim7080g start: %i\n", i);
+    sim7080g_send_at_command(sim, "E0");
+    if(sim7080g_get_response(sim, _buf, sizeof(_buf))) {
+      printf("\n%s\n", _buf);
+      status = 1;
+      break;
+      }
+    sleep_ms(1000);
+  }
+
+  return status;
+
 }

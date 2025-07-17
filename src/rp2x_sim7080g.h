@@ -23,13 +23,14 @@ bool sim7080g_send_at_command(sim7080g_inst_t sim, const uint8_t *command);
 //initialize the uart and gpio stuff
 //and also send the start command (pwrkey)
 //*the module will not be ready for 15 seconds*
+void sim7080g_init(sim7080g_inst_t sim);
 bool sim7080g_start(sim7080g_inst_t sim);
 
-//check if the device responds to commands 1 for yes 0 for no
-bool sim7080g_is_active(sim7080g_inst_t sim);
-
-bool sim7080g_config(sim7080g_inst_t sim, sim7080g_config_t config);
-
+//power commands when we know the state of the device
 bool sim7080g_power_off(sim7080g_inst_t sim);
+bool sim7080g_power_on(sim7080g_inst_t sim);
+
+//config - set all of the important settings in the chip
+bool sim7080g_config(sim7080g_inst_t sim, sim7080g_config_t config);
 
 #endif // WISDOM_MODEM_H
