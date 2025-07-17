@@ -17,6 +17,8 @@
 
 //all functions return 1 for OK and 0 for any error
 
+//helpers to format and send commands
+//and to grab responses and just return a simple string
 bool sim7080g_get_response(sim7080g_inst_t sim, uint8_t *dst, size_t len);
 bool sim7080g_send_at_command(sim7080g_inst_t sim, const uint8_t *command); 
 
@@ -26,11 +28,17 @@ bool sim7080g_send_at_command(sim7080g_inst_t sim, const uint8_t *command);
 void sim7080g_init(sim7080g_inst_t sim);
 bool sim7080g_start(sim7080g_inst_t sim);
 
-//power commands when we know the state of the device
+//power commands when we already know the state of the device
 bool sim7080g_power_off(sim7080g_inst_t sim);
 bool sim7080g_power_on(sim7080g_inst_t sim);
 
 //config - set all of the important settings in the chip
 bool sim7080g_config(sim7080g_inst_t sim, sim7080g_config_t config);
+
+//cell network connection and stuff
+
+//open tcp connection
+
+//gnss
 
 #endif // WISDOM_MODEM_H
