@@ -23,11 +23,8 @@
 //and to grab responses and just return a simple string
 bool sim7080g_get_response(sim7080g_inst_t sim, uint8_t *dst, size_t len);
 bool sim7080g_send_at_command(sim7080g_inst_t sim, const uint8_t *command); 
-
 //initialize the uart and gpio stuff
 void sim7080g_init(sim7080g_inst_t sim);
-
-
 
 
 // -- rp2x_sim7080g_power.c --
@@ -42,6 +39,13 @@ bool sim7080g_power_on(sim7080g_inst_t sim);
 // -- rp2x_sim7080g_config.c
 //config - set all of the important settings in the chip
 bool sim7080g_config(sim7080g_inst_t sim, sim7080g_config_t config);
+//specifically the pdp stuff - instance id, apn, ip settings
+bool sim7080g_pdp_config(sim7080g_inst_t sim, sim7080g_pdp_inst_t pdp_inst);
+
+// -- rp2x_sim7080g_cell.c
+bool sim7080g_cn_activate(sim7080g_inst_t sim, uint pdpidx, uint active);
+
+
 
 // -- rp2x_sim7080g_tcp.c
 //open tcp connection

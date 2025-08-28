@@ -48,6 +48,12 @@ enum CGREG_N {
   cgreg_enable_gprs_rau = 4
 };
 
+enum CNACT_N {
+  cnact_deactivate = 0,
+  cnact_activate = 1,
+  cnact_auto_activate = 2
+};
+
 //ip modes
 #define CGDCONT_IP "IP",
 #define CGDCONT_IPV6 "IPV6"
@@ -62,8 +68,6 @@ typedef struct _sim7080g_inst_t {
 } sim7080g_inst_t;
 
 typedef struct _sim7080g_config_t {
-  const char *apn;
-  const char *cgdcont_pdp_type;
   uint sim_cmee;
   uint sim_cmgf;
   uint sim_cnmp;
@@ -72,3 +76,14 @@ typedef struct _sim7080g_config_t {
   uint sim_cops_mode;
   uint sim_cgreg;
 } sim7080g_config_t;
+
+typedef struct _sim7080g_pdp_inst_t {
+  uint cid;
+  const char *pdp_type;
+  const char *apn;
+  const char *pdp_addr;
+  uint pdp_d_comp;
+  uint pdp_h_comp;
+  uint pdp_ipv4_control;
+  uint pdp_emergency_flag;
+} sim7080g_pdp_inst_t;

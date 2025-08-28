@@ -7,6 +7,7 @@
 #include "rp2x_sim7080g.h"
 #include "rp2x_sim7080g_power.c"
 #include "rp2x_sim7080g_config.c"
+#include "rp2x_sim7080g_cell.c"
 #include "rp2x_sim7080g_gnss.c"
 #include "rp2x_sim7080g_tcp.c"
 
