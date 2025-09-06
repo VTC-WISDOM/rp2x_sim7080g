@@ -9,7 +9,8 @@
 #include "rp2x_sim7080g_config.c"
 #include "rp2x_sim7080g_cell.c"
 #include "rp2x_sim7080g_gnss.c"
-#include "rp2x_sim7080g_tcp.c"
+#include "rp2x_sim7080g_tcp_udp.c"
+#include "rp2x_sim7080g_mqtt.c"
 
 void sim7080g_init(sim7080g_inst_t sim) {
   

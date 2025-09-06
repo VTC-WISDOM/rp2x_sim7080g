@@ -87,3 +87,36 @@ typedef struct _sim7080g_pdp_inst_t {
   uint pdp_ipv4_control;
   uint pdp_emergency_flag;
 } sim7080g_pdp_inst_t;
+
+
+enum MQTT_CLEANSS_N {
+  mqtt_persistent = 0,
+  mqtt_new = 1
+};
+
+enum MQTT_QOS_N {
+  mqtt_at_most_once = 0,
+  mqtt_at_least_once = 1,
+  mqtt_exactly_once = 2
+};
+
+enum MQTT_RETAIN_N {
+  mqtt_no_retain = 0,
+  mqtt_retain = 1
+};
+
+typedef struct _sim7080g_mqtt_config_t {
+  uint8_t client_id;
+  const char *mqtt_broker_url;
+  uint16_t keeptime_s;
+  uint mqtt_cleanss;
+  const char *mqtt_username;
+  const char *mqtt_password;
+  uint mqtt_qos;
+  const char *mqtt_lwt_topic;
+  const char *mqtt_lwt_message;
+  uint mqtt_retain;
+  uint mqtt_subhex_en; //true/false
+  uint mqtt_asyncmode_en; //true/false
+  uint mqtt_messagelen_en; //true/false
+} sim7080g_mqtt_config_t;

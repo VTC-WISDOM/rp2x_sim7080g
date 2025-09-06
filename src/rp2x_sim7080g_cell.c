@@ -19,3 +19,11 @@ bool sim7080g_cn_activate(sim7080g_inst_t sim, uint pdpidx, uint active) {
   printf("%s", _buf);
 
 }
+
+bool sim7080g_cn_get_status(sim7080g_inst_t sim, uint available, uint active) {
+  
+}
+
+bool sim7080g_sim_get_status() {
+  
+}

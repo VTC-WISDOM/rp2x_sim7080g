@@ -50,7 +50,9 @@ bool sim7080g_cn_activate(sim7080g_inst_t sim, uint pdpidx, uint active);
 // -- rp2x_sim7080g_tcp.c
 //open tcp connection
 
-
+// -- rp2x_sim7080g_mqtt.c
+bool sim7080g_mqtt_config(sim7080g_inst_t sim, sim7080g_mqtt_config_t config);
+ 
 // -- rp2x_sim7080g_gnss.c
 //gnss
 
